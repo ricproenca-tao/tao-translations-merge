@@ -4,19 +4,21 @@ const path = require('path');
 
 const config = require('./config')();
 const log = require('./log.js');
+const github = require('./github.js');
+
+const gitClientFactory = require('./git.js');
 const taoInstanceFactory = require('./taoInstance.js');
 const translationsFactory = require('./translations.js');
 
-module.exports = function runner(wwwUser = 'www-data') {
+module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'translations', mergeBranch = 'develop') {
     let data = {};
+    let gitClient;
+    let githubClient;
     let taoInstance;
     let translationsInstance;
+    let branchName;
 
     return {
-
-        getData() {
-            return data;
-        },
 
         /**
          * Load configuration
@@ -32,7 +34,6 @@ module.exports = function runner(wwwUser = 'www-data') {
                     type: 'input',
                     name: 'token',
                     message: 'I need a Github token, with "repo" rights (check your browser)  : ',
-                    validate: tk => /[a-z0-9]{32,48}/i.test(tk),
                     filter: tk => tk.trim()
                 });
 
@@ -151,32 +152,49 @@ module.exports = function runner(wwwUser = 'www-data') {
             await config.write(data);
         },
 
+        /**
+         * Set the search mode for searching changeable translations
+         */
         async selectEmptyTranslationMode() {
             const {endsWith} = await inquirer.prompt({
                 type: 'input',
                 name: 'endsWith',
                 message: 'Search files for messages that ends with',
-                default: data.endsWith || ''
+                default: data.searchMode && data.searchMode.endsWith || ''
             });
 
-            data.searchMode = {
-                startsWith: 'msgstr ""',
-                endsWith: `${endsWith}"`
-            };
+            data.searchMode = {};
+
+            if (endsWith) {
+                data.searchMode.endsWith = `${endsWith}`;
+            }
 
             await config.write(data);
         },
 
         /**
+         * Verify if local branch has no uncommitted changes
+         */
+        async verifyLocalChanges() {
+            log.doing('Checking extension status');
+            gitClient = gitClientFactory(path.join(data.taoRoot, data.extension.name));
+
+            if (await gitClient.hasLocalChanges()) {
+                log.error(`The extension ${data.extension.name} has local changes, please clean or stash them before releasing`);
+                log.exit('Bye, bye!');
+            }
+
+            log.done(`${data.extension.name} is clean`);
+        },
+
+        /**
          * Recap of the user choices
-         *
-         * @returns {Promise<void>}
          */
         async proceed() {
             const {proceed} = await inquirer.prompt({
                 type: 'confirm',
                 name: 'proceed',
-                message: `Extension: ${data.extension.name}\n  Language: ${data.language.name}\n  *.PO files: ${data.translation.path}\n  Messages should start with ${data.searchMode.startsWith} or ending with ${data.searchMode.endsWith}\n  Proceed?`,
+                message: `Extension: ${data.extension.name}\n  Language: ${data.language.name}\n  *.PO files: ${data.translation.path}\n  Find empty messages and messages ending with ${data.searchMode.endsWith}\n  Proceed?`,
                 default: data.translation.path,
             });
 
@@ -187,20 +205,18 @@ module.exports = function runner(wwwUser = 'www-data') {
 
         /**
          * Merge empty translations
-         *
-         * @returns {Promise<void>}
          */
         async prepareMerge() {
-            // taoInstance.updateTranslations(data.extension.name);
-
             translationsInstance = translationsFactory(data.language, data.translation);
+
+            log.info('Updating translations');
+            await taoInstance.updateTranslations(data.extension.name);
+
             await translationsInstance.setupTranslationsContent(data.searchMode);
-            await translationsInstance.prepareMerge();
 
-            // log.warn(JSON.stringify(translationsInstance.getData('ready'), null, 2));
-        },
+            log.info('Building diff');
+            await translationsInstance.buildDiff();
 
-        async proceedMerge() {
             const {proceed} = await inquirer.prompt({
                 type: 'confirm',
                 name: 'proceed',
@@ -213,8 +229,80 @@ module.exports = function runner(wwwUser = 'www-data') {
             }
         },
 
+
+        /**
+         * Create releasing branch
+         */
+        async createBranch() {
+            log.doing('Create new branch');
+
+            const now = new Date();
+            const nowStr = `${now.getFullYear()}${now.getMonth()}${now.getDate()}.${now.getHours()}${now.getMinutes()}${now.getSeconds()}`;
+            branchName = `${baseBranchName}/${data.extension.name}/${data.language.name}/${nowStr}`;
+
+            await gitClient.localBranch(branchName);
+
+            log.done(`${branchName} created`);
+        },
+
+        /**
+         * Merge translations
+         */
         async mergeTranslations() {
             await translationsInstance.merge();
-        }
+        },
+
+        /**
+         * Commit and push changes to the branch
+         */
+        async commitAndPush() {
+            const changes = await gitClient.commitAndPush(branchName, 'add new translations');
+
+            if (changes && changes.length) {
+                log.info(`Commit : [added translations for - ${changes.length} files]`);
+                changes.forEach(file => log.info(`  - ${file}`));
+            }
+        },
+
+        /**
+         * Initialise github client for the extension to release repository
+         */
+        async initialiseGithubClient() {
+            const repoName = await taoInstance.getRepoName(data.extension.name);
+
+            if (repoName) {
+                githubClient = github(data.token, repoName);
+            } else {
+                log.exit('Unable to find the github repository name');
+            }
+        },
+
+        /**
+         * Create pull request from branch
+         */
+        async createPullRequest() {
+            log.doing('Create the pull request');
+
+            const pullRequest = await githubClient.createReleasePR(
+                branchName,
+                mergeBranch,
+                `Merge translations - ${data.extension.name} - ${data.language.name}`,
+                `Merging translations in ${data.extension.name} extension for the ${data.language.name} language.`
+            );
+
+            if (pullRequest && pullRequest.state === 'open') {
+                data.pr = {
+                    url: pullRequest.html_url,
+                    apiUrl: pullRequest.url,
+                    number: pullRequest.number,
+                    id: pullRequest.id
+                };
+
+                log.info(`${data.pr.url} created`);
+                log.done();
+            } else {
+                log.exit('Unable to create the pull request');
+            }
+        },
     };
 };
