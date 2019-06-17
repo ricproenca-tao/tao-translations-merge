@@ -209,9 +209,6 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
         async prepareMerge() {
             translationsInstance = translationsFactory(data.language, data.translation);
 
-            log.info('Updating translations');
-            await taoInstance.updateTranslations(data.extension.name);
-
             await translationsInstance.setupTranslationsContent(data.searchMode);
 
             log.info('Building diff');
