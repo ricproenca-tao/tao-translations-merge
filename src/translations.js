@@ -1,7 +1,6 @@
-const {createReadStream} = require('fs');
+const {createReadStream, createWriteStream, unlink, renameSync} = require('fs');
 const {join, normalize} = require('path');
 const readline = require('readline');
-const replace = require('replace-in-file');
 
 const log = require('./log.js');
 const config = require('./config')(process.cwd(), '.content.json');
@@ -10,19 +9,17 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
     let content = {
         missing: [],
         available: [],
-        ready: []
+        diff: []
     };
 
     return {
 
-        getData(prop) {
-            return prop ? content[prop] : content;
-        },
-
+        /**
+         * Set the translations content object
+         * @param {Object} searchMode - Object to pass options for searching translations
+         */
         async setupTranslationsContent(searchMode) {
             log.info('Searching for missing translations');
-
-
             const promises = origin.files.map(async (file) => {
                 const emptyMessages = await this.getMissingTranslations(join(origin.path, file), searchMode);
                 if (emptyMessages.length) {
@@ -54,6 +51,11 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
             await config.write(content);
         },
 
+        /**
+         * Get missing translations for file
+         * @param {String} file - name of the file
+         * @param {Object} searchMode - Object to pass options for searching translations
+         */
         async getMissingTranslations(file, searchMode) {
             return new Promise(function (resolve, reject) {
                 let emptyMessages = [];
@@ -73,8 +75,7 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
                         lastIdLine = line;
                     }
 
-                    //if ((line.startsWith('msgstr ""') || line.endsWith(searchMode.endsWith)) && lastIdLine) {
-                    if (line.startsWith('msgstr ""') && lastIdLine) {
+                    if ((line.startsWith('msgstr ""') || line.endsWith(searchMode.endsWith)) && lastIdLine) {
                         emptyMessages.push(lastIdLine);
                     }
                 });
@@ -89,6 +90,10 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
             });
         },
 
+        /**
+         * Get available translations in file
+         * @param {String} file - name of the file
+         */
         async getAvailableTranslations(file) {
             return new Promise(function (resolve, reject) {
                 let emptyMessages = {};
@@ -124,13 +129,13 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
             });
         },
 
-        async prepareMerge() {
-            log.info('Preparing merge');
-
+        /**
+         * Build diff the missing and available translations
+         */
+        async buildDiff() {
             content.missing.map((entry) => {
                 const fileName = entry.file;
                 if (entry.messages.length) {
-                    // content.ready[fileName] = {};
                     const newEntry = {
                         file: fileName,
                         messages: []
@@ -141,17 +146,24 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
                         newEntry.messages.push(readyMsg);
                     });
 
-                    content.ready.push(newEntry);
+                    content.diff.push(newEntry);
                 }
             });
 
-            content.ready.map((entry) => {
+            content.diff.map((entry) => {
                 log.doing(`Found ${Object.keys(entry.messages).length} messages ready to translate in "${entry.file}"`);
             });
 
             await config.write(content);
         },
 
+        /**
+         * Gets the available message for the msgId
+         *
+         * @param {String} fileName - name of the file
+         * @param {String} msgId - msg id
+         * @returns {String}
+         */
         getAvailableMessage(fileName, msgId) {
             const found = content.available.filter((entry) => {
                 return entry.file === fileName;
@@ -160,39 +172,87 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
             if (found) {
                 const msgStr = found.messages[msgId];
                 if (!msgStr) {
-                    log.warn(`Cannot found available translation for [${msgId}] in [${fileName}]`);
+                    log.warn(`Cannot find available translation for [${msgId}] in [${fileName}]`);
                 }
 
                 return msgStr || 'msgstr ""';
             }
 
-            log.warn(`Cannot found [${fileName}] file in available translations`);
+            log.warn(`Cannot find [${fileName}] file in available translations`);
             return '';
         },
 
+        /**
+         * Merge available content into missing content
+         */
         async merge() {
-            content.ready.map((entry) => {
-                const options = {files: join(origin.path, entry.file)};
-                log.info(`Merging file ${entry.file}`);
+            const promises = content.diff.map(async (entry) => {
+                await this.mergeContent(entry);
+            });
+            await Promise.all(promises);
+        },
 
-                entry.messages.forEach(msg => {
-                    const msgKey = Object.keys(msg);
-                    const msgValue = Object.values(msg);
+        /**
+         * Merge file content
+         * @param {object} entry - Information about files and messages to merge
+         * @param {String} entry.file - The name of the file
+         * @param {Array.<String>}entry.messages - The messages to merge
+         */
+        async mergeContent(entry) {
+            const newFile = join(origin.path, entry.file);
+            const oldFile = `${newFile}.bak`;
 
-                    options.from = `${msgKey}\nmsgstr ""`;
-                    options.to = `${msgKey}\n${msgValue}`;
+            return new Promise(function (resolve, reject) {
+                let stringToWrite = '';
 
-                    try {
-                        const results = replace.sync(options)[0];
-                        if (!results.hasChanged) {
-                            log.warn(`Nothing has changed, when merging [${msgKey}] to [${msgValue}]`);
-                        }
-                    } catch (error) {
-                        log.error(error);
-                    }
+                renameSync(newFile, oldFile);
+
+                const readInterface = readline.createInterface({
+                    input: createReadStream(oldFile)
                 });
+
+                const writeInterface = createWriteStream(newFile);
+
+                readInterface.on('line', (line) => {
+                    if (stringToWrite) {
+                        writeInterface.write(`${stringToWrite}\n`);
+                        stringToWrite = '';
+                        return;
+                    }
+
+
+                    writeInterface.write(`${line}\n`);
+                    entry.messages.filter((msg) => {
+                        const msgKey = Object.keys(msg)[0];
+                        if (line === msgKey) {
+                            stringToWrite = Object.values(msg)[0];
+                        }
+                    });
+                });
+
+                readInterface.on('close', function () {
+                    writeInterface.end();
+                    unlink(oldFile, (err) => {
+                        if (err) {
+                            log.error(`Cannot delete ${oldFile}`);
+                        }
+                    });
+                    resolve(true);
+                });
+
+                readInterface.on('error', function () {
+                    log.error(`Error reading in ${oldFile}`);
+                    reject(false);
+                });
+
+                writeInterface.on('error', function () {
+                    log.error(`Error writing in ${newFile}`);
+                });
+
+                log.done(`${newFile} merged!`);
             });
         }
+
     };
 };
 
