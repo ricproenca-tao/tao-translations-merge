@@ -206,6 +206,29 @@ module.exports = function taoInstanceFactory(rootDir = '', quiet = true, wwwUser
         },
 
         /**
+         * Extract the repository name from the extension composer
+         * @param {String} extensionName - the name of the extension
+         * @returns {Promise} resolves with the repo name
+         */
+        getRepoName(extensionName = ''){
+            const composerPath = normalize(`${rootDir}/${extensionName}/composer.json`);
+            return new Promise( (resolve, reject) => {
+                fs.readFile(composerPath, 'utf-8', (err, data) => {
+                    var fileData;
+                    if(err){
+                        return reject(err);
+                    }
+                    try{
+                        fileData = JSON.parse(data);
+                    } catch(jsonErr){
+                        return reject(jsonErr);
+                    }
+                    return resolve(fileData.name);
+                });
+            });
+        },
+
+        /**
          * Update translations
          *
          * @param {String} extensionName - the name of the extension to bundle
