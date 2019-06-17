@@ -1,4 +1,6 @@
 # tao-translations-merge
-Compare and merge customer translations
+This tool intends to automate the diff and merge of different translations with *.PO files.
 
-This tool automate the merge of translations with *.PO files
+# System Prerequisites
+* node.js
+* git
