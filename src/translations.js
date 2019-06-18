@@ -75,7 +75,7 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
                         lastIdLine = line;
                     }
 
-                    if ((line.startsWith('msgstr ""') || line.endsWith(searchMode.endsWith)) && lastIdLine) {
+                    if ((line.startsWith('msgstr ""') || line.endsWith(`${searchMode.endsWith}"`)) && lastIdLine) {
                         emptyMessages.push(lastIdLine);
                     }
                 });
