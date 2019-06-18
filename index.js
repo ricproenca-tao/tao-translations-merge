@@ -10,7 +10,8 @@ const runner = require('./src/runner')();
         await runner.selectExtension();
         await runner.selectLanguage();
         await runner.selectTranslationsFolder();
-        await runner.selectEmptyTranslationMode();
+
+        await runner.selectSearchModeEndsWith();
 
         await runner.verifyLocalChanges();
         await runner.proceed();
@@ -19,12 +20,13 @@ const runner = require('./src/runner')();
 
         await runner.createBranch();
         await runner.mergeTranslations();
+        await runner.bumpVersion();
         await runner.commitAndPush();
 
         await runner.initialiseGithubClient();
         await runner.createPullRequest();
 
-        log.done('Bye, bye! See you next time!');
+        log.done('Don\'t forget to delete the branch!\nBye, bye! See you next time!');
     } catch (error) {
         log.error(error);
     }

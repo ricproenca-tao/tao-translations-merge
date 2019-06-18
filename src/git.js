@@ -33,7 +33,6 @@ const git = require('simple-git/promise');
  */
 module.exports = function gitFactory(repository = '', origin = 'origin') {
 
-
     /**
      * @typedef gitClient
      * @type {Object}
@@ -45,7 +44,7 @@ module.exports = function gitFactory(repository = '', origin = 'origin') {
          * @param {String} branchName - the branch name
          * @returns {Promise}
          */
-        localBranch(branchName){
+        localBranch(branchName) {
             return git(repository)
                 .checkoutLocalBranch(branchName);
         },
@@ -54,7 +53,7 @@ module.exports = function gitFactory(repository = '', origin = 'origin') {
          * Does the repository has changes ?
          * @returns {Promise<Boolean>}
          */
-        hasLocalChanges(){
+        hasLocalChanges() {
             const empty = ['modified', 'renamed', 'conflicted', 'created', 'deleted'];
             return git(repository)
                 .status()
@@ -69,15 +68,15 @@ module.exports = function gitFactory(repository = '', origin = 'origin') {
          * @param {String} comment - commit comment
          * @returns {Promise}
          */
-        commitAndPush(branchName, comment = ''){
-            var changes =[];
+        commitAndPush(branchName, comment = '') {
+            let changes = [];
             return git(repository).diffSummary()
                 .then(results => {
                     if (results && results.files) {
                         changes = results.files.map(file => file.file);
                         return git(repository)
                             .commit(comment, changes)
-                            .then( () => git(repository).push(origin, branchName));
+                            .then(() => git(repository).push(origin, branchName));
                     }
                 })
                 .then(() => changes);

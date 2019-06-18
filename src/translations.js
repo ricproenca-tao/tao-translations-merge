@@ -19,7 +19,7 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
          * @param {Object} searchMode - Object to pass options for searching translations
          */
         async setupTranslationsContent(searchMode) {
-            log.info('Searching for missing translations');
+            log.info(`Searching for missing translations in [ ${origin.path} ]`);
             const promises = origin.files.map(async (file) => {
                 const emptyMessages = await this.getMissingTranslations(join(origin.path, file), searchMode);
                 if (emptyMessages.length) {
@@ -32,10 +32,10 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
             await Promise.all(promises);
 
             content.missing.map((entry) => {
-                log.doing(`Found ${entry.messages.length} missing translations in ${entry.file}`);
+                log.doing(`Found ${entry.messages.length} missing translations in [ ${entry.file} ]`);
             });
 
-            log.info('Searching for available translations');
+            log.info(`Searching for available translations in [ ${available.path} ]`);
             const availableContentPromises = available.files.map(async (file) => {
                 content.available.push({
                     file: normalize(file),
@@ -45,7 +45,7 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
             await Promise.all(availableContentPromises);
 
             content.available.map((entry) => {
-                log.doing(`Found ${Object.keys(entry.messages).length} available translations in ${entry.file}`);
+                log.doing(`Found ${Object.keys(entry.messages).length} available translations in [ ${entry.file} ]`);
             });
 
             await config.write(content);
@@ -151,7 +151,7 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
             });
 
             content.diff.map((entry) => {
-                log.doing(`Found ${Object.keys(entry.messages).length} messages ready to translate in "${entry.file}"`);
+                log.doing(`Found ${Object.keys(entry.messages).length} messages that can be translated (if available) in [ ${entry.file} ]`);
             });
 
             await config.write(content);
@@ -172,7 +172,7 @@ module.exports = function taoTranslationMergeFactory(origin, available) {
             if (found) {
                 const msgStr = found.messages[msgId];
                 if (!msgStr) {
-                    log.warn(`Cannot find available translation for [${msgId}] in [${fileName}]`);
+                    log.warn(`Cannot find available translation for [${msgId}] in [ ${fileName} ]`);
                 }
 
                 return msgStr || 'msgstr ""';

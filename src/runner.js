@@ -1,3 +1,4 @@
+const open = require('open');
 const inquirer = require('inquirer');
 const path = require('path');
 
@@ -24,6 +25,22 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
          */
         async loadConfig() {
             data = Object.assign({}, await config.load());
+
+            // Request github token if necessary
+            if (!data.token) {
+                setTimeout(() => open('https://github.com/settings/tokens'), 2000);
+
+                const {token} = await inquirer.prompt({
+                    type: 'input',
+                    name: 'token',
+                    message: 'I need a Github token, with "repo" rights (check your browser) : ',
+                    filter: tk => tk.trim()
+                });
+
+                data.token = token;
+
+                await config.write(data);
+            }
         },
 
         /**
@@ -37,7 +54,7 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
                 default: data.taoRoot || process.cwd()
             });
 
-            taoInstance = taoInstanceFactory(path.resolve(taoRoot), true, wwwUser);
+            taoInstance = taoInstanceFactory(path.resolve(taoRoot), wwwUser);
 
             const {dir, root} = await taoInstance.isRoot();
 
@@ -63,7 +80,7 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
             const {extension} = await inquirer.prompt({
                 type: 'list',
                 name: 'extension',
-                message: 'Which extension you want to compare? ',
+                message: 'Which extension you want to choose ? ',
                 pageSize: 12,
                 choices: availableExtensions,
                 default: data.extension && data.extension.name,
@@ -138,12 +155,11 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
         /**
          * Set the search mode for searching changeable translations
          */
-        async selectEmptyTranslationMode() {
+        async selectSearchModeEndsWith() {
             const {endsWith} = await inquirer.prompt({
                 type: 'input',
                 name: 'endsWith',
-                message: 'Search files for messages that ends with',
-                default: data.searchMode && data.searchMode.endsWith || ''
+                message: 'Search files for messages that ends with :'
             });
 
             data.searchMode = {};
@@ -162,7 +178,7 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
             gitClient = gitClientFactory(path.join(data.taoRoot, data.extension.name));
 
             if (await gitClient.hasLocalChanges()) {
-                log.warn(`The extension ${data.extension.name} has local changes, please clean or stash them before releasing`);
+                log.warn(`The extension ${data.extension.name} has local changes. Make sure you can continue with this process.`);
             }
         },
 
@@ -196,7 +212,7 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
             const {proceed} = await inquirer.prompt({
                 type: 'confirm',
                 name: 'proceed',
-                message: 'Are you sure you want to merge the translations?',
+                message: 'Are you sure you want to merge the translations ?',
                 default: true
             });
 
@@ -210,8 +226,6 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
          * Create releasing branch
          */
         async createBranch() {
-            log.doing('Create new branch');
-
             const now = new Date();
             const nowStr = `${now.getFullYear()}${now.getMonth()}${now.getDate()}.${now.getHours()}${now.getMinutes()}${now.getSeconds()}`;
             branchName = `${baseBranchName}/${data.extension.name}/${data.language.name}/${nowStr}`;
@@ -237,6 +251,21 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
             if (changes && changes.length) {
                 log.info(`Commit : [added translations for - ${changes.length} files]`);
                 changes.forEach(file => log.info(`  - ${file}`));
+            }
+        },
+
+        /**
+         * Asks user to bump version
+         */
+        async bumpVersion() {
+            const {bumpVersion} = await inquirer.prompt({
+                type: 'confirm',
+                name: 'proceed',
+                message: 'Please bump version (manifest + update script) to be able to commit and push. Proceed ?'
+            });
+
+            if (!bumpVersion) {
+                process.exit();
             }
         },
 

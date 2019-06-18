@@ -31,11 +31,10 @@ const isWin = /^win/.test(process.platform);
  * Get the taoInstance
  *
  * @param {String} rootDir - the path of the TAO instance root
- * @param {Boolean} [quiet = true] - if we redirect stdout and stderr to the console
  * @param {String} [wwwUser = www-data] - the user with web server rights
  * @return {Promise} resolves with a result object
  */
-module.exports = function taoInstanceFactory(rootDir = '', quiet = true, wwwUser = 'www-data') {
+module.exports = function taoInstanceFactory(rootDir = '', wwwUser = 'www-data') {
 
     return {
 
