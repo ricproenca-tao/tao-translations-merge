@@ -1,4 +1,3 @@
-const opn = require('opn');
 const inquirer = require('inquirer');
 const path = require('path');
 
@@ -25,22 +24,6 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
          */
         async loadConfig() {
             data = Object.assign({}, await config.load());
-
-            // Request github token if necessary
-            if (!data.token) {
-                setTimeout(() => opn('https://github.com/settings/tokens'), 2000);
-
-                const {token} = await inquirer.prompt({
-                    type: 'input',
-                    name: 'token',
-                    message: 'I need a Github token, with "repo" rights (check your browser)  : ',
-                    filter: tk => tk.trim()
-                });
-
-                data.token = token;
-
-                await config.write(data);
-            }
         },
 
         /**
@@ -80,7 +63,7 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
             const {extension} = await inquirer.prompt({
                 type: 'list',
                 name: 'extension',
-                message: 'Which extension you want to release ? ',
+                message: 'Which extension you want to compare? ',
                 pageSize: 12,
                 choices: availableExtensions,
                 default: data.extension && data.extension.name,
@@ -176,15 +159,11 @@ module.exports = function runner(wwwUser = 'www-data', baseBranchName = 'transla
          * Verify if local branch has no uncommitted changes
          */
         async verifyLocalChanges() {
-            log.doing('Checking extension status');
             gitClient = gitClientFactory(path.join(data.taoRoot, data.extension.name));
 
             if (await gitClient.hasLocalChanges()) {
-                log.error(`The extension ${data.extension.name} has local changes, please clean or stash them before releasing`);
-                log.exit('Bye, bye!');
+                log.warn(`The extension ${data.extension.name} has local changes, please clean or stash them before releasing`);
             }
-
-            log.done(`${data.extension.name} is clean`);
         },
 
         /**
